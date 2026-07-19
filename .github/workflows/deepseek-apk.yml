@@ -64,7 +64,7 @@ jobs:
           echo "NEXT_PUBLIC_APP_PLATFORM=tauri" >> .env.local
           cp .env.local apps/readest-app/.env.local
 
-      - name: build debug APK
+      - name: build signed arm64 release APK
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
         run: |
@@ -73,11 +73,29 @@ jobs:
           pnpm tauri android init
           pnpm tauri icon ../../data/icons/readest-book.png
           git checkout .
-          pnpm tauri android build --debug
+          # Generate a throwaway keystore so the release APK is signed and
+          # therefore directly installable (no Play/official signature).
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/ks.jks" \
+            -storepass android -keypass android -alias key \
+            -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Readest DeepSeek"
+          pushd src-tauri/gen/android
+          {
+            echo "keyAlias=key"
+            echo "password=android"
+            echo "storeFile=$RUNNER_TEMP/ks.jks"
+          } > keystore.properties
+          popd
+          # arm64 only → one small APK instead of a ~560MB universal debug.
+          pnpm tauri android build --target aarch64
+          echo "=== produced APKs ==="
+          find src-tauri/gen/android -name '*.apk' -exec ls -lh {} \;
+          apk=$(find src-tauri/gen/android -path '*release*' -name '*.apk' ! -name '*unsigned*' | head -1)
+          echo "picked: $apk"
+          cp "$apk" readest-deepseek-arm64.apk
 
       - name: upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: readest-deepseek-debug-apk
-          path: apps/readest-app/src-tauri/gen/android/app/build/outputs/apk/**/debug/*.apk
+          name: readest-deepseek-apk
+          path: apps/readest-app/readest-deepseek-arm64.apk
           if-no-files-found: error
