@@ -1,0 +1,83 @@
+# Personal build: compile a debug Android APK with the DeepSeek word-lookup
+# feature and upload it as a workflow artifact. Debug APKs are self-signed by
+# the Android debug key, so they install by sideloading with no keystore setup.
+# Trigger manually from the Actions tab (workflow_dispatch) or by pushing to the
+# deepseek-lookup branch.
+name: DeepSeek APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - deepseek-lookup
+
+jobs:
+  build-android-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      NDK_VERSION: '28.2.13676358'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: install NDK
+        run: sdkmanager "ndk;${NDK_VERSION}"
+
+      - name: install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: copy vendor assets
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: install Rust stable with Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/readest-app/src-tauri -> target
+          key: deepseek-apk-android
+
+      - name: create .env.local for Next.js
+        run: |
+          echo "NEXT_PUBLIC_APP_PLATFORM=tauri" >> .env.local
+          cp .env.local apps/readest-app/.env.local
+
+      - name: build debug APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+        run: |
+          cd apps/readest-app/
+          rm -rf src-tauri/gen/android
+          pnpm tauri android init
+          pnpm tauri icon ../../data/icons/readest-book.png
+          git checkout .
+          pnpm tauri android build --debug
+
+      - name: upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: readest-deepseek-debug-apk
+          path: apps/readest-app/src-tauri/gen/android/app/build/outputs/apk/**/debug/*.apk
+          if-no-files-found: error

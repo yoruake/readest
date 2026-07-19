@@ -8,6 +8,7 @@ import { BsPencilSquare } from 'react-icons/bs';
 import { BsTranslate } from 'react-icons/bs';
 import { FaHeadphones } from 'react-icons/fa6';
 import { IoIosBuild } from 'react-icons/io';
+import { BsStars } from 'react-icons/bs';
 import { AnnotationToolType } from '@/types/annotator';
 import { stubTranslation as _ } from '@/utils/misc';
 
@@ -95,6 +96,13 @@ export const annotationToolButtons = createAnnotationToolButtons([
     label: _('Share'),
     tooltip: _('Share text after selection'),
     Icon: FiShare,
+    quickAction: true,
+  },
+  {
+    type: 'deepseek',
+    label: _('AI 查词'),
+    tooltip: _('用 DeepSeek 查释义、发音与词源'),
+    Icon: BsStars,
     quickAction: true,
   },
 ]);

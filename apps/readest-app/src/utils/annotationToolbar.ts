@@ -12,9 +12,10 @@ export const ALL_ANNOTATION_TOOL_TYPES: AnnotationToolType[] = [
   'tts',
   'proofread',
   'share',
+  'deepseek',
 ];
 
-// Default toolbar: the eight pre-existing tools in their original order.
+// Default toolbar: the eight pre-existing tools plus the DeepSeek AI lookup.
 // 'share' starts hidden in the Available tray per the #4014 design.
 export const DEFAULT_ANNOTATION_TOOLBAR_ITEMS: AnnotationToolType[] = [
   'copy',
@@ -25,6 +26,7 @@ export const DEFAULT_ANNOTATION_TOOLBAR_ITEMS: AnnotationToolType[] = [
   'translate',
   'tts',
   'proofread',
+  'deepseek',
 ];
 
 // Drop unknown/duplicate entries; fall back to the default when unset (a

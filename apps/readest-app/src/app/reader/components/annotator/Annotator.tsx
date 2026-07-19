@@ -77,6 +77,7 @@ import AnnotationPopup from './AnnotationPopup';
 import DictionaryPopup from './DictionaryPopup';
 import DictionarySheet from './DictionarySheet';
 import TranslatorPopup from './TranslatorPopup';
+import DeepSeekPopup from './DeepSeekPopup';
 import useShortcuts from '@/hooks/useShortcuts';
 import ProofreadPopup from './ProofreadPopup';
 import { setProofreadRulesVisibility } from '@/app/reader/components/ProofreadRules';
@@ -145,11 +146,14 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
   const [showAnnotPopup, setShowAnnotPopup] = useState(false);
   const [showDictionaryPopup, setShowDictionaryPopup] = useState(false);
   const [showDeepLPopup, setShowDeepLPopup] = useState(false);
+  const [showDeepSeekPopup, setShowDeepSeekPopup] = useState(false);
+  const [deepSeekContext, setDeepSeekContext] = useState('');
   const [showProofreadPopup, setShowProofreadPopup] = useState(false);
   const [trianglePosition, setTrianglePosition] = useState<Position>();
   const [annotPopupPosition, setAnnotPopupPosition] = useState<Position>();
   const [dictPopupPosition, setDictPopupPosition] = useState<Position>();
   const [translatorPopupPosition, setTranslatorPopupPosition] = useState<Position>();
+  const [deepSeekPopupPosition, setDeepSeekPopupPosition] = useState<Position>();
   const [proofreadPopupPosition, setProofreadPopupPosition] = useState<Position>();
   const [highlightOptionsVisible, setHighlightOptionsVisible] = useState(false);
   const [showAnnotationNotes, setShowAnnotationNotes] = useState(false);
@@ -188,7 +192,11 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
   const pendingWordLensDictRef = useRef(false);
 
   const showingPopup =
-    showAnnotPopup || showDictionaryPopup || showDeepLPopup || showProofreadPopup;
+    showAnnotPopup ||
+    showDictionaryPopup ||
+    showDeepLPopup ||
+    showDeepSeekPopup ||
+    showProofreadPopup;
 
   const popupPadding = useResponsiveSize(10);
   const trianglePadding = popupPadding * 2 + 6;
@@ -201,6 +209,8 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
   const dictPopupHeight = Math.min(360, maxHeight);
   const transPopupWidth = Math.min(480, maxWidth);
   const transPopupHeight = Math.min(265, maxHeight);
+  const deepSeekPopupWidth = Math.min(480, maxWidth);
+  const deepSeekPopupHeight = Math.min(360, maxHeight);
   const proofreadPopupWidth = Math.min(440, maxWidth);
   const proofreadPopupHeight = Math.min(200, maxHeight);
   const canShare = canShareText(appService);
@@ -252,6 +262,13 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
       transPopupHeight,
       popupPadding,
     );
+    const deepSeekPopupPos = getPopupPosition(
+      triangPos,
+      rect,
+      deepSeekPopupWidth,
+      deepSeekPopupHeight,
+      popupPadding,
+    );
     const proofreadPopupPos = getPopupPosition(
       triangPos,
       rect,
@@ -263,6 +280,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
     setAnnotPopupPosition(annotPopupPos);
     setDictPopupPosition(dictPopupPos);
     setTranslatorPopupPosition(transPopupPos);
+    setDeepSeekPopupPosition(deepSeekPopupPos);
     setProofreadPopupPosition(proofreadPopupPos);
     setTrianglePosition(triangPos);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,6 +322,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
       setShowAnnotPopup(false);
       setShowDictionaryPopup(false);
       setShowDeepLPopup(false);
+      setShowDeepSeekPopup(false);
       setShowProofreadPopup(false);
       setEditingAnnotation(null);
     }, 500),
@@ -892,6 +911,9 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
         case 'translate':
           handleTranslation();
           break;
+        case 'deepseek':
+          handleDeepSeek();
+          break;
         case 'tts':
           handleSpeakText(true);
           break;
@@ -947,6 +969,13 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
         transPopupHeight,
         popupPadding,
       );
+      const deepSeekPopupPos = getPopupPosition(
+        triangPos,
+        rect,
+        deepSeekPopupWidth,
+        deepSeekPopupHeight,
+        popupPadding,
+      );
       const proofreadPopupPos = getPopupPosition(
         triangPos,
         rect,
@@ -958,6 +987,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
       setAnnotPopupPosition(annotPopupPos);
       setDictPopupPosition(dictPopupPos);
       setTranslatorPopupPosition(transPopupPos);
+      setDeepSeekPopupPosition(deepSeekPopupPos);
       setProofreadPopupPosition(proofreadPopupPos);
       setTrianglePosition(triangPos);
 
@@ -1043,6 +1073,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
     }
     setShowAnnotPopup(true);
     setShowDeepLPopup(false);
+    setShowDeepSeekPopup(false);
     setShowDictionaryPopup(false);
   };
 
@@ -1302,6 +1333,36 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
     if (!selection || !selection.text) return;
     setShowAnnotPopup(false);
     setShowDeepLPopup(true);
+  };
+
+  // Grab a short bit of surrounding text so DeepSeek can disambiguate the
+  // language and the word's role in context (mirrors the DeepLex extension,
+  // which sends the enclosing sentence). Climbs from the selection anchor to
+  // the nearest block element and caps the length like DeepLex does.
+  const getSelectionContext = (): string => {
+    try {
+      const range = selection?.range;
+      if (!range) return selection?.text ?? '';
+      const node = range.startContainer;
+      let el: Element | null = node.nodeType === 1 ? (node as Element) : node.parentElement;
+      const blockTags = /^(P|LI|BLOCKQUOTE|DIV|TD|SECTION|ARTICLE|H[1-6]|DD|DT)$/;
+      while (el && el.parentElement && !blockTags.test(el.tagName)) {
+        el = el.parentElement;
+      }
+      const text = (el?.textContent || selection?.text || '').replace(/\s+/g, ' ').trim();
+      return text.slice(0, 400);
+    } catch {
+      return selection?.text ?? '';
+    }
+  };
+
+  const handleDeepSeek = () => {
+    if (!selection || !selection.text) return;
+    setDeepSeekContext(getSelectionContext());
+    setShowAnnotPopup(false);
+    setShowDeepLPopup(false);
+    setShowDictionaryPopup(false);
+    setShowDeepSeekPopup(true);
   };
 
   const handleSpeakText = async (oneTime = false) => {
@@ -1675,6 +1736,8 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
         return { tooltipText: _(label), Icon, onClick: handleDictionary };
       case 'translate':
         return { tooltipText: _(label), Icon, onClick: handleTranslation };
+      case 'deepseek':
+        return { tooltipText: _(label), Icon, onClick: handleDeepSeek };
       case 'tts':
         return { tooltipText: _(label), Icon, onClick: handleSpeakText };
       case 'proofread':
@@ -1743,6 +1806,17 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
           trianglePosition={trianglePosition}
           popupWidth={transPopupWidth}
           popupHeight={transPopupHeight}
+          onDismiss={handleDismissPopupAndSelection}
+        />
+      )}
+      {showDeepSeekPopup && trianglePosition && deepSeekPopupPosition && (
+        <DeepSeekPopup
+          word={selection?.text as string}
+          sentence={deepSeekContext}
+          position={deepSeekPopupPosition}
+          trianglePosition={trianglePosition}
+          popupWidth={deepSeekPopupWidth}
+          popupHeight={deepSeekPopupHeight}
           onDismiss={handleDismissPopupAndSelection}
         />
       )}
